@@ -5,7 +5,7 @@
 // Licence: Creative Commons Attribution 3.0 Unported License, http://creativecommons.org/licenses/by/3.0/
 //			If you copy, distribute or transmit the source code please retain the above copyright notice, author name and project URL. 
 // Required: Mootools 1.2
-// Version: OmniGrid 1.2.3
+// Version: OmniGrid 1.2.5
 // ****************************************************************************
 
 var omniGrid = new Class({
@@ -33,6 +33,7 @@ var omniGrid = new Class({
 			url:null,
 			pagination:false,
 			page:1,
+			perPageOptions: [10, 20, 50, 100, 200],
 			perPage:10
 		};
 	},
@@ -56,19 +57,19 @@ var omniGrid = new Class({
 		
 		this.renderData();
 		
+		this.refreshDelayID = null;
 		this.dragging = false;
 		this.selected = new Array();
 		
 		if (this.options.accordion)	
-			this.elements = this.ulBody.getElements('li[class!=section]'); // all li el. except accordian sections
+			this.elements = this.ulBody.getElements('li:nth-child(2n+1)') // all li el. except accordian sections
 		else
 			this.elements = this.ulBody.getElements('li');
-			
+
 		this.filtered = false;
 		this.lastsection = null;
 		
-		if (this.options.alternaterows)
-			this.altRow();		
+		if (this.options.alternaterows)	this.altRow();		
 
 		this.elements.each(function(el,i){
 			
@@ -198,11 +199,24 @@ var omniGrid = new Class({
 	
 	// API
 	getSection: function(row){
-		return this.ulBody.getElement('#section-'+row);
+		return this.ulBody.getElement('.section-'+row);
+	},
+	
+	getLiParent: function (target){
+		// ! ako se koristi labelFunction onda neki html elem. moze hvatati event, detektiraj pravi li
+		target = $(target);
+
+		while ( target && !target.hasClass('td') ){
+			target = target.getParent();
+		}
+		
+		if (target)
+			return target.getParent();
 	},
 	
 	onRowMouseOver: function (evt){
-		var li = evt.target.getParent();
+		var li = this.getLiParent(evt.target);
+		if (!li) return;
 		
 		if (!this.dragging)
 			li.addClass('over');
@@ -211,7 +225,8 @@ var omniGrid = new Class({
 	},
 	
 	onRowMouseOut: function (evt){
-		var li = evt.target.getParent();
+		var li = this.getLiParent(evt.target);
+		if (!li) return;
 		
 		if (!this.dragging)
 			li.removeClass('over');
@@ -220,8 +235,11 @@ var omniGrid = new Class({
 	},
 	
 	onRowClick: function (evt){
-		var li = evt.target.getParent();
-
+	
+		var li = this.getLiParent(evt.target);
+		
+		if (!li) return;
+		
 		if ( (!evt.control || !this.options.multipleSelection) && this.options.selectable )
 		{
 			// ocisti stari selection
@@ -263,7 +281,8 @@ var omniGrid = new Class({
 	},
 	
 	onRowDblClick: function (evt){
-		var li = evt.target.getParent();
+		var li = this.getLiParent(evt.target);
+		if (!li) return;
 		
 		this.fireEvent("dblclick", {row:li.retrieve('row'), target:this, element:li});
 	},
@@ -313,7 +332,7 @@ var omniGrid = new Class({
 		top += this.container.getElement('.tDiv') ? this.container.getElement('.tDiv').getSize().y : 0;
 		top += this.container.getElement('.hDiv') ? this.container.getElement('.hDiv').getSize().y : 0;
 		
-		gBlock.setStyles({width:this.options.width, height: (bDiv ? bDiv.getSize().y:0) -1, top:top});
+		gBlock.setStyles({width:this.options.width, height: (bDiv ? bDiv.getSize().y:0), top:top});
 		gBlock.addClass('gBlock');
 		
 		this.container.appendChild(gBlock);
@@ -348,7 +367,7 @@ var omniGrid = new Class({
 			
 			this.container.getElement('div.pDiv input').value = data.page;
 			var to = (data.page*this.options.perPage) > data.total ? data.total : (data.page*this.options.perPage);
-			this.container.getElement('div.pDiv .pPageStat').set('html', 'Displaying '+((data.page-1)*this.options.perPage+1)+' to '+to+' of '+data.total+' items');
+			this.container.getElement('div.pDiv .pPageStat').set('html', ((data.page-1)*this.options.perPage+1)+'..'+to+' / '+data.total);
 			this.container.getElement('div.pDiv .pcontrol span').set('html', this.options.maxpage);
 		}else
 			this.options.data = data.data;
@@ -366,6 +385,11 @@ var omniGrid = new Class({
 	},
 	
 	// API
+	getData: function(){
+		return this.options.data;
+	},
+	
+	// API
 	getDataByRow: function(row){
 		if (row >=0 && row<this.options.data.length)
 			return this.options.data[row];
@@ -377,6 +401,20 @@ var omniGrid = new Class({
 		{	
 			this.options.data[row] = data;
 			
+			this.reset();
+		}
+	},
+	
+	// API
+	addRow: function(data, row){
+		if (row >=0)
+		{	
+			// ako podataci nisu inic. napravi novi array
+			if (!this.options.data)
+				this.options.data = [];
+
+			this.options.data.splice(row, 0, data);
+
 			this.reset();
 		}
 	},
@@ -466,8 +504,18 @@ var omniGrid = new Class({
 		//this.options.data = null;
 	},	
 	
+	// API
+	setColumnModel: function(cmu){
+		if ( !cmu )
+			return;
+				
+		this.options.columnModel = cmu;	
+		
+		this.draw();
+	},
+	
 	// Automatsko odredivanje column modela ako nije zadan
-	setColumnModel: function(){
+	setAutoColumnModel: function(){
 		if ( !this.options.data )
 			return;
 			
@@ -581,7 +629,7 @@ var omniGrid = new Class({
 		var hDivBox = this.container.getElement('div.hDivBox');
 		
 		hDivBox.setStyle('width', this.sumWidth+this.visibleColumns*2);
-		
+	
 		// header
 		var columns = hDivBox.getElements('div.th');
 		var columnObj = columns[colindex];
@@ -589,15 +637,20 @@ var omniGrid = new Class({
 		columnObj.setStyle('width', pos-(Browser.Engine.trident ? 6 : 6 ));
 
 		var visibleColumns = this.visibleColumns; // radi this. u each-u
+		
+		// radi accordiana
+		var elements = this.ulBody.getElements('li');
+
 		// sve kolone u body
-		this.elements.each(function(el, i){
+		elements.each(function(el, i){
 			el.setStyle('width', this.sumWidth+2*visibleColumns); // inace se Div-ovi wrapaju
 			
-			var columns = el.getElements('div.td');
-			
-			var columnObj = columns[colindex];
-			
-			columnObj.setStyle('width', pos-(Browser.Engine.trident ? 6 : 6 ));
+			if (!el.hasClass('section'))	
+			{
+				var columns = el.getElements('div.td');
+				var columnObj = columns[colindex];
+				columnObj.setStyle('width', pos-(Browser.Engine.trident ? 6 : 6 ));
+			}
 			
 		});
 		
@@ -733,11 +786,17 @@ var omniGrid = new Class({
 					}else if (columnModel.labelFunction != null) {
 							div.innerHTML = columnModel.labelFunction(this.options.data[r], r);
 					}else {
-							var str = this.options.data[r][columnModel.dataIndex];
+							var str = new String(this.options.data[r][columnModel.dataIndex]); // mora biti string, jer ako dode 0 kao broj error
+
+							if (str == null || str == "" ) str = '&nbsp;';
+
+							var trimmed = str.replace(/^\s+|\s+$/g, ''); // ako je prazan string
+							if(trimmed.length==0) str = '&nbsp;';
 							
-							if (str == null ) str = '&nbsp;';
-							if(str.length==0) str = '&nbsp;';
-														
+							// Column text align propert.
+							// moram prije srediti racunanje width radi padding:0 kad se aling
+							//if (columnModel.align) div.setStyles({'text-align': columnModel.align, 'padding-left':0});
+							
 							div.innerHTML = str;
 					}
 					
@@ -752,9 +811,10 @@ var omniGrid = new Class({
 					
 					li.appendChild(div);
 				*/
-					var li2 = new Element('li', {'id':'section-'+r});
+					var li2 = new Element('li');
 					li2.addClass('section');
-					li2.setStyle('width', this.sumWidth+2); // inace se Div-ovi wrapaju, a u IE nastaje cudan 1px border ispod LI el.
+					li2.addClass('section-'+r);
+					li2.setStyle('width', this.sumWidth+2*this.visibleColumns); // inace se Div-ovi wrapaju, a u IE nastaje cudan 1px border ispod LI el.
 					
 					this.ulBody.appendChild(li2);
 					
@@ -981,22 +1041,47 @@ var omniGrid = new Class({
 			pDiv2.addClass('pDiv2');
 			pDiv.appendChild(pDiv2);
 			
-			var h = '<div class="pGroup"><select id="rp" name="rp"><option selected="selected" value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option><option value="200">200</option></select></div>';
+			var h = '<div class="pGroup"><select class="rp" name="rp">';
+			
+			// *****
+			var optIdx;
+			var setDefaultPerPage = false;
+			for (optIdx=0; optIdx<this.options.perPageOptions.length; optIdx++)
+			{
+				if (this.options.perPageOptions[optIdx] != this.options.perPage)
+					h += '<option value="' + this.options.perPageOptions[optIdx] + '">' + this.options.perPageOptions[optIdx] +'</option>';
+				else{
+					setDefaultPerPage = true;
+					h += '<option selected="selected" value="' + this.options.perPageOptions[optIdx] + '">' + this.options.perPageOptions[optIdx] +'</option>' ;
+				}
+			}
+			// *****
+
+			h += '</select></div>';
+			
 			h += '<div class="btnseparator"></div><div class="pGroup"><div class="pFirst pButton"></div><div class="pPrev pButton"></div></div>';
-			h += '<div class="btnseparator"></div><div class="pGroup"><span class="pcontrol">Page <input type="text" value="1" size="4"/> of <span></span></span></div>';
+			h += '<div class="btnseparator"></div><div class="pGroup"><span class="pcontrol"><input type="text" value="1" size="4" style="text-align:center"/> / <span></span></span></div>';
 			h += '<div class="btnseparator"></div><div class="pGroup"><div class="pNext pButton"></div><div class="pLast pButton"></div></div>';
 			h += '<div class="btnseparator"></div><div class="pGroup"><div class="pReload pButton"></div></div>';
 			h += '<div class="btnseparator"></div><div class="pGroup"><span class="pPageStat"></div>';
 			
 			pDiv2.innerHTML = h;
-			
+
+			// set this.options.perPage value from this.options.perPageOptions array
+			var rpObj = pDiv2.getElement('.rp');
+			if (!setDefaultPerPage && rpObj.options.length>0){
+				this.options.perPage = rpObj.options[0].value;
+				rpObj.options[0].selected = true;
+			}
+			// ********
+
 			pDiv2.getElement('.pFirst').addEvent('click', this.firstPage.bind(this) );
 			pDiv2.getElement('.pPrev').addEvent('click', this.prevPage.bind(this) );
 			pDiv2.getElement('.pNext').addEvent('click', this.nextPage.bind(this) );
 			pDiv2.getElement('.pLast').addEvent('click', this.lastPage.bind(this) );
 			pDiv2.getElement('.pReload').addEvent('click', this.refresh.bind(this) );
-			pDiv2.getElement('#rp').addEvent('change', this.perPageChange.bind(this));
-			pDiv2.getElement('input').addEvent('keydown', this.pageChange.bind(this) );
+			pDiv2.getElement('.rp').addEvent('change', this.perPageChange.bind(this));
+			pDiv2.getElement('input').addEvent('keyup', this.pageChange.bind(this) );
 		}
 
 	},
@@ -1029,13 +1114,23 @@ var omniGrid = new Class({
 	
 	perPageChange: function(){
 		this.options.page = 1;
-		this.options.perPage = this.container.getElement('#rp').value;		
+		this.options.perPage = this.container.getElement('.rp').value;		
 		this.refresh();
 	},
 		
 	pageChange: function(){
-		this.options.page = this.container.getElement('div.pDiv2 input').value;		
-		this.refresh();
+		
+		var np = this.container.getElement('div.pDiv2 input').value;
+		
+		if (np>0 && np<=this.options.maxpage)
+		{
+			if (this.refreshDelayID)
+				$clear(this.refreshDelayID)
+			
+			this.options.page = np;
+			
+			this.refreshDelayID = this.refresh.delay(1000, this);
+		}
 	},
 	
 	// API
@@ -1109,6 +1204,7 @@ var omniGrid = new Class({
 	
 	altRow: function(){
 		this.elements.each(function(el,i){
+			
 			if(i % 2){
 				el.removeClass('erow');
 			}else{
@@ -1159,7 +1255,7 @@ var omniGrid = new Class({
 						el.removeClass('erow');
 					}
 					
-					if(dat[columnModel.dataIndex].toLowerCase().indexOf(key) > -1)
+					if(dat[columnModel.dataIndex] != null && dat[columnModel.dataIndex].toLowerCase().indexOf(key) > -1)
 					{
 						el.addClass(this.options.filterSelectedCls);
 						if(this.options.filterHide){
